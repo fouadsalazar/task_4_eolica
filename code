@@ -1,0 +1,124 @@
+import pandas as pd
+import numpy as np
+import datetime
+from datetime import datetime
+import plotly.graph_objects as go
+import math
+import statistics
+from windrose import WindroseAxes
+from windrose import WindAxes
+import matplotlib.pyplot as plt
+import scipy
+import plotly.express as px
+
+def leer(año):
+    datos = pd.read_csv('{}.txt'.format(año), sep=",")
+    
+    # Se arregla el formato de las fechas para poder trabajarlo
+    datos["DATE (MM/DD/YYYY)"]= pd.to_datetime(datos["DATE (MM/DD/YYYY)"])
+    datos['Año'] = datos["DATE (MM/DD/YYYY)"].dt.year
+    datos['Mes'] = datos["DATE (MM/DD/YYYY)"].dt.month
+    datos['Dia'] = datos["DATE (MM/DD/YYYY)"].dt.day
+    
+    # Se arregla el formato de las horas 
+    hora=[]
+    minute = []
+    for i in range(len(datos)):
+        hora.append(datetime.strptime(datos["MST"][i],"%H:%M"))
+        minute.append(datetime.strptime(datos["MST"][i],"%H:%M"))
+    datos['Hora'] = hora
+    datos['Hora'] = datos["Hora"].dt.hour
+    datos['Minuto'] = minute
+    datos['Minuto'] = datos["Minuto"].dt.minute
+    
+    return(datos)
+
+    # Limpieza de datos
+def corregir_datos(datos):
+    columna=["Avg Wind Speed @ 2m [m/s]","Avg Wind Speed @ 5m [m/s]",
+             "Avg Wind Speed @ 10m [m/s]","Avg Wind Speed @ 20m [m/s]","Avg Wind Speed @ 50m [m/s]",
+             "Avg Wind Speed @ 80m [m/s]"]
+
+    datos.fillna(0,inplace=True)
+    
+    for i in range(len(datos)):
+        for j in range(len(columna)):
+            if i > 0  and i < (len(datos)-1):
+                if datos[columna[j]][i] < 0:
+                    datos[columna[j]][i] = (datos[columna[j]][i-1] + datos[columna[j]][i+1])/2
+    return (datos)
+
+
+def analisis_indice(datos,mes,altura):
+    df_mes=pd.DataFrame()
+    datos_mes = datos[(datos["Mes"]==mes)]
+    turbulencia = []
+    lista_turbulencia = []
+    lista_velocidad = []
+    lista_indice = []
+    
+    if mes ==4 or mes ==6 or mes==9 or mes ==11:
+        dias = 30
+    elif mes ==1 or mes ==3 or mes==5 or mes ==7 or mes==8 or mes ==10 or mes ==12:
+        dias = 30
+    elif mes==2:
+        dias = 28
+        
+    for j in range(dias):
+        datos_dia = datos_mes[(datos_mes["Dia"]==j+1)]
+        for h in range(24):
+            datos_hora = datos_dia[(datos_dia["Hora"]==h)]
+            for m in range(0,60,10):
+                datos_10_min = datos_hora [(datos_hora["Minuto"]>=m)&(datos_hora["Minuto"]<m+10)]
+                desviacion_est = statistics.stdev(datos_10_min["Avg Wind Speed @ {}m [m/s]".format(altura)])
+                media_vel = datos_10_min["Avg Wind Speed @ {}m [m/s]".format(altura)].mean() 
+                turbulencia = desviacion_est/media_vel
+                lista_turbulencia.append(turbulencia)
+            indice_turbulencia = (sum(lista_turbulencia))/(len(lista_turbulencia))
+            lista_velocidad.append(datos_hora["Avg Wind Speed @ {}m [m/s]".format(altura)].mean())
+            lista_indice.append(indice_turbulencia)
+    df_mes["Velocidad media por hora a {}m".format(altura)]=lista_velocidad
+    df_mes["Indice de turbulencia por hora a {}m".format(altura)]=lista_indice
+    return(df_mes)
+
+datos = corregir_datos(leer(2018))
+alturas = ["2","5","10","20","50","80"]
+df=pd.DataFrame()
+for h in alturas:
+    lista_v=[]
+    lista_i=[]
+    for i in range(12):
+        df_horario = analisis_indice(datos,i+1,h)
+        lista_v.extend(df_horario["Velocidad media por hora a {}m".format(h)])
+        lista_i.extend(df_horario["Indice de turbulencia por hora a {}m".format(h)])
+    df["Velocidad media por hora a {}m".format(h)]=lista_v
+    df["Indice de turbulencia por hora a {}m".format(h)]=lista_i
+    
+fig = px.scatter(x=df["Velocidad media por hora a 80m"], y=df["Indice de turbulencia por hora a 80m"], 
+              labels={'x':'Velocidad media por hora a 80m', 'y':'Indice de turbulencia por hora a 80m'})
+              
+              
+# Se importan las funciones necesarias para graficar 
+import plotly.graph_objects as go
+
+# Se establecen las graficas que se pretenten hacer
+fig = go.Figure()
+
+# Se define una lista para cada tecnologia
+altura = ["2","5","10","20","50","80"]
+
+# Se hace un bucle para hacer todas las tecnologias en una sola grafica
+for i in altura:
+    x = np.array(df["Velocidad media por hora a {}m".format(i)])
+    y = np.array(df["Indice de turbulencia por hora a {}m".format(i)])
+    p4 = np.poly1d(np.polyfit(x, y, 5))
+    
+    xp = np.linspace(0, 18, 100)
+    
+    fig.add_trace(go.Scatter(name="{}m de altura".format(i),x=xp, y=p4(xp)))
+
+# Se procede a graficar
+fig.update_layout(title = 'Variación de la turbulencia con la altura',title_x=0.5,
+                  xaxis_title='Velocidad media [m/s]',yaxis_title='Indice de turbulencia')
+fig.show()
+fig.show()
